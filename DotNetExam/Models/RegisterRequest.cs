@@ -1,4 +1,5 @@
 ﻿using Azure.Identity;
+using DotNetExam.Models;
 using System.ComponentModel.DataAnnotations;
 using System.Security.Cryptography;
 using System.Text;
@@ -34,5 +35,8 @@ namespace DotNetExam.Entities
         [Required]
         [Display(Name = "Имя")]
         public string UserName { get; set; } = null!;
+        [Required]
+        [Display(Name = "Роль")]
+        public Roles Role { get; set; }
     }
 }

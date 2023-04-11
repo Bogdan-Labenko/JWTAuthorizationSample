@@ -12,8 +12,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Identity.Client;
 using Microsoft.OpenApi.Attributes;
+using System.Runtime.CompilerServices;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Text.Json.Serialization;
 
 namespace DotNetExam.Controllers
 {
@@ -24,15 +26,13 @@ namespace DotNetExam.Controllers
     {
         private readonly IMediator _mediator;
         private readonly ITokenService _tokenService;
-        private readonly CryptographyService _cryptographyService;
-        public AccountsController(IMediator mediator, ITokenService token, CryptographyService crypto)
+        public AccountsController(IMediator mediator, ITokenService token)
         {
             _mediator = mediator;
             _tokenService = token;
-            _cryptographyService = crypto;
         }
         [HttpPost("login")]
-        public async Task<ActionResult<AuthResponse>> Authenticate([FromBody] AuthRequest request)
+        public async Task<ActionResult<AuthResponse>> Login([FromBody] AuthRequest request)
         {
             if (!ModelState.IsValid)
             {
@@ -43,28 +43,11 @@ namespace DotNetExam.Controllers
             {
                 return BadRequest(new { message = "Wrong login!" });
             }
-            if (user.PasswordHash != request.Password)
+            if (user.PasswordHash != request.PasswordHash)
             {
-                return BadRequest(new { message = "Wrong password!" } );
+                return BadRequest(new { message = "Wrong password!" });
             }
-            var claims = new List<Claim>
-            {
-                new Claim(ClaimTypes.Name, user.UserName),
-                new Claim(ClaimTypes.Role, Convert.ToInt32(user.Role).ToString()),
-                new Claim(ClaimTypes.Email, user.Email)
-            };
-            var identity = new ClaimsIdentity(claims, "Bearer");
-            var accessToken = _tokenService.GenerateAccessToken(identity);
-            user.RefreshToken = _tokenService.GenerateRefreshToken();
-            await _mediator.Send(new EditUserCommand(user));
-
-            return Ok(new AuthResponse
-            {
-                Username = user.UserName!,
-                Email = user.Email!,
-                Token = accessToken,
-                RefreshToken = user.RefreshToken
-            });
+            return Ok(await Authenticate(user));
         }
         [Authorize]
         [HttpGet]
@@ -72,30 +55,47 @@ namespace DotNetExam.Controllers
         {
             return await _mediator.Send(new GetAllUsersQuery());
         }
-        //[HttpPost("register")]
-        //public async Task<ActionResult<AuthResponse>> Register([FromBody] RegisterRequest request)
-        //{
-            //if(ModelState.IsValid) return BadRequest(ModelState);
-            //var user = new IdentityUser<long>()
-            //{
-            //    Email = request.Email,
-            //    PasswordHash = request.PasswordHash,
-            //    UserName = request.UserName
-            //};
-            //var result = await _userManager.CreateAsync(user, request.PasswordHash);
-            //foreach (var error in result.Errors)
-            //{
-            //    ModelState.AddModelError(error.Code, error.Description);
-            //}
-            //if (!result.Succeeded) return BadRequest(request);
-            //var findUser = await _mediator.Send(new GetUserByEmailQuery(request.Email));
+        [HttpPost("register")]
+        public async Task<ActionResult<AuthResponse>> Register([FromBody] RegisterRequest request)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+            var user = new User()
+            {
+                Email = request.Email,
+                PasswordHash = request.PasswordHash,
+                UserName = request.UserName,
+                RefreshToken = "token",
+                Role = request.Role
+            };
+            await _mediator.Send(new AddUserCommand(user));
 
-            //if (findUser == null) 
-            //{
-            //    return BadRequest(request);
-            //}
-            //await _userManager.AddToRoleAsync(findUser, RolesConst.Member);
-        //    return Ok();
-        //}
+            var findUser = await _mediator.Send(new GetUserByEmailQuery(request.Email));
+            if (findUser == null)
+            {
+                return BadRequest(request);
+            }
+            return Ok(await Authenticate(findUser));
+        }
+        private async Task<AuthResponse> Authenticate(User user)
+        {
+            var claims = new List<Claim>
+            {
+                new Claim(ClaimTypes.Name, user.UserName),
+                new Claim(ClaimTypes.Role, Convert.ToInt32(user.Role).ToString()),
+                new Claim(ClaimTypes.Email, user.Email)
+            };
+
+            var identity = new ClaimsIdentity(claims, "Bearer");
+            var accessToken = _tokenService.GenerateAccessToken(identity);
+            user.RefreshToken = _tokenService.GenerateRefreshToken();
+            await _mediator.Send(new EditUserCommand(user));
+            return new AuthResponse()
+            {
+                Email = user.Email,
+                RefreshToken = user.RefreshToken,
+                AccessToken = accessToken,
+                Username = user.UserName
+            };
+        }
     }
 }

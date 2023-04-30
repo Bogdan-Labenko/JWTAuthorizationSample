@@ -5,8 +5,9 @@ namespace DotNetExam.Services
 {
     public interface ITokenService
     {
-        string GenerateAccessToken(ClaimsIdentity claims);
+        string GenerateAccessToken(User user);
         string GenerateRefreshToken();
+        string GetEmailFromAccessToken(HttpRequest request);
         public byte[] GetSecurityKey();
     }
 }

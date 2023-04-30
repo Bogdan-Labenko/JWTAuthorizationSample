@@ -1,16 +1,9 @@
 using DotNetExam;
-using DotNetExam.Middlewares;
 using DotNetExam.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Authentication.OAuth;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using System.Configuration;
-using System.Net;
-using System.Reflection;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -48,6 +41,7 @@ builder.Services.AddSwaggerGen(c =>
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
 //Token service
 builder.Services.AddTransient<ITokenService, TokenService>();
+builder.Services.AddTransient<CookiesService>();
 //Database
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
@@ -73,6 +67,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(conf?.GetSection("SecretKey").Value ?? throw new Exception("Secret key not found!"))),
             //валидация ключа безопасности
             ValidateIssuerSigningKey = true,
+            ClockSkew = TimeSpan.Zero
         };
     });
 
@@ -88,11 +83,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseMiddleware<JwtExpirationMiddleware>();
-
 app.UseHttpsRedirection();
-
-app.UseAuthorization();
 
 app.MapControllers();
 

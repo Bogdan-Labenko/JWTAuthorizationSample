@@ -6,16 +6,10 @@ using DotNetExam.Models;
 using DotNetExam.Services;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Identity.Client;
-using Microsoft.OpenApi.Attributes;
-using System.Runtime.CompilerServices;
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Security.Cryptography;
-using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace DotNetExam.Controllers
 {
@@ -26,10 +20,12 @@ namespace DotNetExam.Controllers
     {
         private readonly IMediator _mediator;
         private readonly ITokenService _tokenService;
-        public AccountsController(IMediator mediator, ITokenService token)
+        private readonly CookiesService _cookiesService;
+        public AccountsController(IMediator mediator, ITokenService token, CookiesService cookiesService)
         {
             _mediator = mediator;
             _tokenService = token;
+            _cookiesService = cookiesService;
         }
         [HttpPost("login")]
         public async Task<ActionResult<AuthResponse>> Login([FromBody] AuthRequest request)
@@ -76,19 +72,38 @@ namespace DotNetExam.Controllers
             }
             return Ok(await Authenticate(findUser));
         }
+        [Authorize]
+        [HttpPost("refresh")]
+        public async Task<IActionResult> Refresh()
+        {
+            var refToken = _cookiesService.GetRefreshTokenFromCookie(Request);
+            if (refToken == null)
+            {
+                return BadRequest("Refresh token not found!");
+            }
+            var email = _tokenService.GetEmailFromAccessToken(Request);
+            if (email == null) return BadRequest("Bad access token: " + email);
+
+            var user = await _mediator.Send(new GetUserByEmailQuery(email));
+            if (user == null) { return BadRequest("User not found!"); }
+
+            if (user.RefreshToken != refToken) { return BadRequest("Refresh token not valid!"); }
+            user.RefreshToken = _tokenService.GenerateRefreshToken();
+            var response = new RefreshResponse
+                (
+                    _tokenService.GenerateAccessToken(user),
+                    user.RefreshToken
+                );
+            await _mediator.Send(new EditUserCommand(user));
+
+            return Ok(response);
+        }
         private async Task<AuthResponse> Authenticate(User user)
         {
-            var claims = new List<Claim>
-            {
-                new Claim(ClaimTypes.Name, user.UserName),
-                new Claim(ClaimTypes.Role, Convert.ToInt32(user.Role).ToString()),
-                new Claim(ClaimTypes.Email, user.Email)
-            };
-
-            var identity = new ClaimsIdentity(claims, "Bearer");
-            var accessToken = _tokenService.GenerateAccessToken(identity);
+            var accessToken = _tokenService.GenerateAccessToken(user);
             user.RefreshToken = _tokenService.GenerateRefreshToken();
             await _mediator.Send(new EditUserCommand(user));
+            _cookiesService.AddRefreshCookieToResponse(Response, user.RefreshToken);
             return new AuthResponse()
             {
                 Email = user.Email,

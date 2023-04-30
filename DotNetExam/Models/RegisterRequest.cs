@@ -10,6 +10,7 @@ namespace DotNetExam.Entities
     {
         [Required]
         [Display(Name = "Email")]
+        [DataType(DataType.EmailAddress)]
         public string Email { get; set; } = null!;
 
         [Required]
